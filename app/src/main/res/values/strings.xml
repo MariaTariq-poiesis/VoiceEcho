@@ -1,0 +1,31 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">VoiceEcho</string>
+    <string name="home_instructions">Tap the Blue Record button to begin recording your voice, and if you want to record Video click on \"Video\" Button in Red Color.</string>
+    <string name="tap_to_record">Tap to Record</string>
+    <string name="btn_record">Record</string>
+    <string name="btn_video">Video</string>
+    <string name="btn_saved_files">Saved Files</string>
+    <string name="recording_started">Recording started…</string>
+    <string name="edit_title">Edit</string>
+    <string name="change_voice_title">Change Voice</string>
+    <string name="change_voice_desc">Transform your audio by selecting a voice effect from a variety of options</string>
+    <string name="trim_voice_title">Trim Voice</string>
+    <string name="trim_voice_desc">Adjust the length of audio recordings for precise control</string>
+    <string name="record_new_title">Record New</string>
+    <string name="record_new_desc">Start a new recording session to capture moments seamlessly</string>
+    <string name="apply_effects_title">Apply Effects</string>
+    <string name="btn_save">Save</string>
+    <string name="tab_voice_effects">Voice Effects</string>
+    <string name="tab_ambient_sounds">Ambient Sounds</string>
+    <string name="trim_title">Trim Voice</string>
+    <string name="btn_trim_selection">Trim Selection</string>
+    <string name="file_saved_title">File Saved</string>
+    <string name="congrats_title">Congrats!</string>
+    <string name="congrats_desc">Audio file has been saved successfully</string>
+    <string name="explore_more">Explore More</string>
+    <string name="explore_saved_files">Saved Files</string>
+    <string name="explore_share">Share</string>
+    <string name="explore_change">Change</string>
+    <string name="explore_home">Home</string>
+</resources>

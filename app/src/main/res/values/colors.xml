@@ -1,0 +1,29 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <color name="splash_background">#4A7DFF</color>
+    <color name="primary_blue">#4A7DFF</color>
+    <color name="primary_blue_dark">#3A6AE8</color>
+    <color name="video_red">#E05353</color>
+    <color name="cancel_gray">#EEEEEE</color>
+    <color name="text_dark">#1A1A1A</color>
+    <color name="text_gray">#8A8A8A</color>
+    <color name="background_light">#F5F5F7</color>
+    <color name="white">#FFFFFF</color>
+    <color name="edit_card_border">#E0E0E0</color>
+    <color name="purple_play">#8B5CF6</color>
+    <color name="crown_gold">#F5B400</color>
+    <color name="effect_pink">#F8C6D8</color>
+    <color name="effect_green">#8ED08A</color>
+    <color name="effect_orange">#F0A868</color>
+    <color name="effect_teal">#4FBFAE</color>
+    <color name="effect_yellowgreen">#C7D96A</color>
+    <color name="effect_lightgreen">#8FD98F</color>
+    <color name="effect_brown">#B08968</color>
+    <color name="effect_yellow">#F5C842</color>
+    <color name="effect_maroon">#8B3A4A</color>
+    <color name="effect_lightblue">#BFE3F5</color>
+    <color name="explore_blue">#5B6FE8</color>
+    <color name="explore_green">#3FBF7F</color>
+    <color name="explore_purple">#B07FE0</color>
+    <color name="explore_lightgreen">#7FCB6F</color>
+</resources>
