@@ -1,12 +1,13 @@
 package com.example.voiceecho.audio
 
 /**
- * Simplified Kotlin port of the Sonic audio processing algorithm
- * (originally by Bill Cox, used in Android's TTS engine).
- * Handles pitch shifting and speed changes on 16-bit PCM audio
- * by resampling — higher pitch/speed values scan through the source
- * faster (shorter, higher-pitched output); lower values scan slower
- * (longer, deeper-pitched output).
+ * Simplified Kotlin port of the Sonic pitch-shifting algorithm.
+ * Shifts pitch by resampling, using CUBIC interpolation (Catmull-Rom)
+ * instead of linear — linear interpolation between samples adds a
+ * grainy/aliased quality that gets worse at strong pitch shifts (like
+ * Helium or Monster); cubic interpolation follows the actual curve of
+ * the waveform instead of a straight line between points, which is a
+ * major contributor to removing the "robotic/metallic" texture.
  */
 class SonicAudio(
     private var sampleRate: Int,
@@ -41,9 +42,6 @@ class SonicAudio(
     }
 
     private fun process() {
-        // Combined scan rate: values ABOVE 1.0 scan the source faster,
-        // producing a SHORTER, HIGHER-pitched result (chipmunk-style).
-        // Values BELOW 1.0 scan slower, producing a LONGER, DEEPER result.
         val playbackRate = (pitch * rate * speed).coerceAtLeast(0.01f)
         val samplesPerChannel = inputCount / numChannels
 
@@ -61,20 +59,36 @@ class SonicAudio(
         for (ch in 0 until numChannels) {
             for (i in 0 until outSamplesPerChannel) {
                 val srcPos = i * playbackRate
-                val srcIndex = srcPos.toInt().coerceIn(0, samplesPerChannel - 1)
-                val nextIndex = (srcIndex + 1).coerceAtMost(samplesPerChannel - 1)
-                val frac = srcPos - srcIndex
+                val i1 = srcPos.toInt().coerceIn(0, samplesPerChannel - 1)
+                val frac = srcPos - i1
 
-                val s1 = inputBuffer[srcIndex * numChannels + ch].toInt()
-                val s2 = inputBuffer[nextIndex * numChannels + ch].toInt()
-                val interpolated = (s1 + (s2 - s1) * frac).toInt().toShort()
+                val i0 = (i1 - 1).coerceAtLeast(0)
+                val i2 = (i1 + 1).coerceAtMost(samplesPerChannel - 1)
+                val i3 = (i1 + 2).coerceAtMost(samplesPerChannel - 1)
 
-                outputBuffer[outputCount + i * numChannels + ch] = interpolated
+                val p0 = inputBuffer[i0 * numChannels + ch].toFloat()
+                val p1 = inputBuffer[i1 * numChannels + ch].toFloat()
+                val p2 = inputBuffer[i2 * numChannels + ch].toFloat()
+                val p3 = inputBuffer[i3 * numChannels + ch].toFloat()
+
+                val interpolated = catmullRom(p0, p1, p2, p3, frac)
+                    .coerceIn(-32768f, 32767f)
+
+                outputBuffer[outputCount + i * numChannels + ch] = interpolated.toInt().toShort()
             }
         }
 
         outputCount += outTotal
         inputCount = 0
+    }
+
+    /** Catmull-Rom cubic interpolation between p1 and p2, using p0/p3 as neighbors for curve shape. */
+    private fun catmullRom(p0: Float, p1: Float, p2: Float, p3: Float, t: Float): Float {
+        val a0 = -0.5f * p0 + 1.5f * p1 - 1.5f * p2 + 0.5f * p3
+        val a1 = p0 - 2.5f * p1 + 2f * p2 - 0.5f * p3
+        val a2 = -0.5f * p0 + 0.5f * p2
+        val a3 = p1
+        return ((a0 * t + a1) * t + a2) * t + a3
     }
 
     fun readShorts(destination: ShortArray, maxLength: Int): Int {

@@ -19,6 +19,7 @@ import com.example.voiceecho.data.AmbientSounds
 import com.example.voiceecho.data.VoiceEffect
 import com.example.voiceecho.data.VoiceEffects
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.io.File
@@ -30,6 +31,10 @@ class ApplyEffectsActivity : AppCompatActivity() {
     private var isPlaying = false
     private var sourcePath: String? = null
 
+    // The one processed file currently loaded — preview, and Save both use ONLY this file.
+    private var currentProcessedFile: File? = null
+    private var processingJob: Job? = null
+
     private lateinit var effectsAdapter: EffectsAdapter
     private lateinit var recyclerEffects: RecyclerView
     private lateinit var tabVoiceEffects: TextView
@@ -38,6 +43,7 @@ class ApplyEffectsActivity : AppCompatActivity() {
     private lateinit var tvCurrentTime: TextView
     private lateinit var tvTotalTime: TextView
     private lateinit var btnPlayPreview: ImageButton
+    private lateinit var btnSave: TextView
 
     private val handler = Handler(Looper.getMainLooper())
     private val progressRunnable = object : Runnable {
@@ -58,10 +64,9 @@ class ApplyEffectsActivity : AppCompatActivity() {
         super.onCreate(savedInstanceState)
         setContentView(R.layout.activity_apply_effects)
 
-        // sourcePath must ALWAYS be the original raw recording. Every caller of this
-        // Activity (PlaybackActivity's "Change Voice" row, and FileSavedActivity's
-        // "Change" button) is responsible for passing the ORIGINAL file here, never
-        // an already-effect-processed file, so effects never stack on top of each other.
+        // sourcePath must ALWAYS be the original raw recording — every caller
+        // (PlaybackActivity's "Change Voice" row, FileSavedActivity's "Change" button)
+        // passes the ORIGINAL file here, never an already-processed one.
         sourcePath = intent.getStringExtra(EXTRA_AUDIO_PATH)
 
         val toolbar = findViewById<Toolbar>(R.id.toolbar)
@@ -69,7 +74,9 @@ class ApplyEffectsActivity : AppCompatActivity() {
         supportActionBar?.title = null
 
         findViewById<ImageButton>(R.id.btnBack).setOnClickListener { finish() }
-        findViewById<TextView>(R.id.btnSave).setOnClickListener { saveWithEffect() }
+
+        btnSave = findViewById(R.id.btnSave)
+        btnSave.setOnClickListener { saveProcessedFile() }
 
         progressBar = findViewById(R.id.progressBar)
         tvCurrentTime = findViewById(R.id.tvCurrentTime)
@@ -94,12 +101,14 @@ class ApplyEffectsActivity : AppCompatActivity() {
         tabVoiceEffects.setOnClickListener { switchTab(showVoiceEffects = true) }
         tabAmbientSounds.setOnClickListener { switchTab(showVoiceEffects = false) }
 
-        loadDuration()
+        // Process and preview the default-selected effect ("Default") right away,
+        // so there's always a currentProcessedFile ready before the user taps anything.
+        processAndPreview(VoiceEffects.ALL[0])
     }
 
     private fun setupVoiceEffectsGrid() {
         effectsAdapter = EffectsAdapter(VoiceEffects.ALL) { effect ->
-            previewEffect(effect)
+            processAndPreview(effect)
         }
         recyclerEffects.adapter = effectsAdapter
     }
@@ -127,17 +136,74 @@ class ApplyEffectsActivity : AppCompatActivity() {
         }
     }
 
-    private fun previewEffect(effect: VoiceEffect) {
+    /**
+     * Runs the FULL VoiceEffectProcessor pipeline once for the selected effect,
+     * writes the result to a temp file, and plays THAT file for preview.
+     * Save() later just copies this exact file — so preview, next screen,
+     * and the final saved file are always byte-identical.
+     */
+    private fun processAndPreview(effect: VoiceEffect) {
+        val inputPath = sourcePath ?: return
+
+        processingJob?.cancel()
         stopPlayback()
-        val path = sourcePath ?: return
-        mediaPlayer = MediaPlayer().apply {
-            setDataSource(path)
-            prepare()
-            try {
-                playbackParams = playbackParams.setPitch(effect.pitch).setSpeed(effect.speed)
-            } catch (e: Exception) {
-                // Fallback to normal playback if the device doesn't support runtime pitch changes.
+
+        btnSave.isEnabled = false
+        btnPlayPreview.isEnabled = false
+
+        processingJob = lifecycleScope.launch {
+            val previousTemp = currentProcessedFile
+
+            val newTempFile = withContext(Dispatchers.IO) {
+                try {
+                    val tempDir = File(cacheDir, "effect_previews")
+                    if (!tempDir.exists()) tempDir.mkdirs()
+                    val tempFile = File(tempDir, "preview_${System.currentTimeMillis()}.wav")
+                    VoiceEffectProcessor().applyEffect(File(inputPath), tempFile, effect)
+                    tempFile
+                } catch (e: Exception) {
+                    null
+                }
             }
+
+            previousTemp?.delete()
+
+            if (newTempFile != null) {
+                currentProcessedFile = newTempFile
+                btnSave.isEnabled = true
+                btnPlayPreview.isEnabled = true
+                loadDurationAndPlay(newTempFile)
+            } else {
+                Toast.makeText(this@ApplyEffectsActivity, "Failed to process effect", Toast.LENGTH_SHORT).show()
+            }
+        }
+    }
+
+    private fun loadDurationAndPlay(file: File) {
+        lifecycleScope.launch {
+            val durationSeconds = withContext(Dispatchers.IO) {
+                try {
+                    val retriever = android.media.MediaMetadataRetriever()
+                    retriever.setDataSource(file.absolutePath)
+                    val d = retriever.extractMetadata(android.media.MediaMetadataRetriever.METADATA_KEY_DURATION)
+                        ?.toLongOrNull() ?: 0L
+                    retriever.release()
+                    (d / 1000).toInt()
+                } catch (e: Exception) {
+                    0
+                }
+            }
+            tvTotalTime.text = formatTime(durationSeconds)
+            startPreviewPlayback(file)
+        }
+    }
+
+    /** Plain playback of the already-processed file — NO playbackParams, no runtime pitch tricks. */
+    private fun startPreviewPlayback(file: File) {
+        stopPlayback()
+        mediaPlayer = MediaPlayer().apply {
+            setDataSource(file.absolutePath)
+            prepare()
             setOnCompletionListener {
                 this@ApplyEffectsActivity.isPlaying = false
                 btnPlayPreview.setImageResource(android.R.drawable.ic_media_play)
@@ -152,7 +218,7 @@ class ApplyEffectsActivity : AppCompatActivity() {
     private fun togglePreviewPlayback() {
         val mp = mediaPlayer
         if (mp == null) {
-            previewEffect(effectsAdapter.getSelectedEffect())
+            currentProcessedFile?.let { startPreviewPlayback(it) }
             return
         }
         if (isPlaying) {
@@ -175,55 +241,40 @@ class ApplyEffectsActivity : AppCompatActivity() {
         tvCurrentTime.text = "00:00"
     }
 
-    private fun loadDuration() {
-        val path = sourcePath ?: return
-        lifecycleScope.launch {
-            val durationSeconds = withContext(Dispatchers.IO) {
-                try {
-                    val retriever = android.media.MediaMetadataRetriever()
-                    retriever.setDataSource(path)
-                    val d = retriever.extractMetadata(android.media.MediaMetadataRetriever.METADATA_KEY_DURATION)
-                        ?.toLongOrNull() ?: 0L
-                    retriever.release()
-                    (d / 1000).toInt()
-                } catch (e: Exception) {
-                    0
-                }
-            }
-            tvTotalTime.text = formatTime(durationSeconds)
+    /**
+     * Save = copy the ALREADY-PROCESSED preview file into the permanent recordings
+     * folder. No re-processing happens here, so the saved file is byte-identical
+     * to what was just previewed.
+     */
+    private fun saveProcessedFile() {
+        val processedFile = currentProcessedFile
+        val inputPath = sourcePath
+        if (processedFile == null || !processedFile.exists() || inputPath == null) {
+            Toast.makeText(this, "Nothing processed yet", Toast.LENGTH_SHORT).show()
+            return
         }
-    }
-
-    private fun saveWithEffect() {
-        val inputPath = sourcePath ?: return
-        val selectedEffect = effectsAdapter.getSelectedEffect()
-
-        Toast.makeText(this, "Applying ${selectedEffect.displayName} effect…", Toast.LENGTH_SHORT).show()
 
         lifecycleScope.launch {
-            val outputFile = withContext(Dispatchers.IO) {
-                val inputFile = File(inputPath)
-                val outDir = File(getExternalFilesDir(null), "recordings")
-                if (!outDir.exists()) outDir.mkdirs()
-                val outFile = File(outDir, "AudioVoiceEffect${System.currentTimeMillis()}.wav")
+            val finalFile = withContext(Dispatchers.IO) {
                 try {
-                    VoiceEffectProcessor().applyEffect(inputFile, outFile, selectedEffect)
+                    val outDir = File(getExternalFilesDir(null), "recordings")
+                    if (!outDir.exists()) outDir.mkdirs()
+                    val outFile = File(outDir, "AudioVoiceEffect${System.currentTimeMillis()}.wav")
+                    processedFile.copyTo(outFile, overwrite = true)
                     outFile
                 } catch (e: Exception) {
                     null
                 }
             }
 
-            if (outputFile != null) {
+            if (finalFile != null) {
                 val intent = android.content.Intent(this@ApplyEffectsActivity, com.example.voiceecho.ui.saved.FileSavedActivity::class.java)
-                intent.putExtra(com.example.voiceecho.ui.saved.FileSavedActivity.EXTRA_SAVED_PATH, outputFile.absolutePath)
-                // Always forward the ORIGINAL source (never the just-created output) so that
-                // if the user taps "Change" from the next screen, effects apply fresh again.
+                intent.putExtra(com.example.voiceecho.ui.saved.FileSavedActivity.EXTRA_SAVED_PATH, finalFile.absolutePath)
                 intent.putExtra(com.example.voiceecho.ui.saved.FileSavedActivity.EXTRA_ORIGINAL_PATH, inputPath)
                 startActivity(intent)
                 finish()
             } else {
-                Toast.makeText(this@ApplyEffectsActivity, "Failed to apply effect", Toast.LENGTH_SHORT).show()
+                Toast.makeText(this@ApplyEffectsActivity, "Failed to save file", Toast.LENGTH_SHORT).show()
             }
         }
     }
@@ -235,7 +286,10 @@ class ApplyEffectsActivity : AppCompatActivity() {
     }
 
     override fun onDestroy() {
+        processingJob?.cancel()
         stopPlayback()
+        // Clean up any leftover temp preview files from this session.
+        File(cacheDir, "effect_previews").listFiles()?.forEach { it.delete() }
         super.onDestroy()
     }
 
