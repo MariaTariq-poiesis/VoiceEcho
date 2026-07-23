@@ -7,6 +7,7 @@ import android.graphics.Paint
 import android.util.AttributeSet
 import android.view.MotionEvent
 import android.view.View
+import kotlin.math.abs
 import kotlin.math.max
 
 class TrimWaveformView @JvmOverloads constructor(
@@ -35,13 +36,20 @@ class TrimWaveformView @JvmOverloads constructor(
 
     private val handlePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
         color = Color.parseColor("#1A1A1A")
-        strokeWidth = 8f
+        strokeWidth = 10f
     }
 
-    private val handleTouchWidth = 60f
-    private var draggingHandle: Int = NONE // 0 = start, 1 = end, -1 = none
+    // 28dp hit zone converted to actual pixels for this screen density
+    private val handleTouchWidth = 28f * resources.displayMetrics.density
+
+    private var draggingHandle: Int = NONE
 
     var onTrimChanged: ((Float, Float) -> Unit)? = null
+
+    init {
+        isClickable = true
+        isFocusable = true
+    }
 
     fun setAmplitudes(values: List<Float>) {
         amplitudes = values
@@ -49,16 +57,21 @@ class TrimWaveformView @JvmOverloads constructor(
     }
 
     override fun onTouchEvent(event: MotionEvent): Boolean {
+        if (width == 0) return true
+
         val startX = startFraction * width
         val endX = endFraction * width
 
         when (event.action) {
             MotionEvent.ACTION_DOWN -> {
+                val distToStart = abs(event.x - startX)
+                val distToEnd = abs(event.x - endX)
                 draggingHandle = when {
-                    kotlin.math.abs(event.x - startX) < handleTouchWidth -> START
-                    kotlin.math.abs(event.x - endX) < handleTouchWidth -> END
+                    distToStart <= handleTouchWidth && distToStart <= distToEnd -> START
+                    distToEnd <= handleTouchWidth -> END
                     else -> NONE
                 }
+                parent?.requestDisallowInterceptTouchEvent(draggingHandle != NONE)
             }
             MotionEvent.ACTION_MOVE -> {
                 if (draggingHandle == START) {
@@ -75,6 +88,7 @@ class TrimWaveformView @JvmOverloads constructor(
             }
             MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> {
                 draggingHandle = NONE
+                parent?.requestDisallowInterceptTouchEvent(false)
             }
         }
         return true

@@ -26,12 +26,14 @@ class FileSavedActivity : AppCompatActivity() {
     private var mediaPlayer: MediaPlayer? = null
     private var isPlaying = false
     private var savedPath: String? = null
+    private var originalPath: String? = null
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         setContentView(R.layout.activity_file_saved)
 
         savedPath = intent.getStringExtra(EXTRA_SAVED_PATH)
+        originalPath = intent.getStringExtra(EXTRA_ORIGINAL_PATH)
         val file = savedPath?.let { File(it) }
 
         val toolbar = findViewById<Toolbar>(R.id.toolbar)
@@ -45,7 +47,7 @@ class FileSavedActivity : AppCompatActivity() {
         setupPlayback(file)
 
         findViewById<android.widget.LinearLayout>(R.id.btnExploreSavedFiles).setOnClickListener {
-            // Step 12 will replace this with the real Saved Files list screen
+            startActivity(Intent(this, SavedFilesActivity::class.java))
         }
 
         findViewById<android.widget.LinearLayout>(R.id.btnExploreShare).setOnClickListener {
@@ -53,9 +55,12 @@ class FileSavedActivity : AppCompatActivity() {
         }
 
         findViewById<android.widget.LinearLayout>(R.id.btnExploreChange).setOnClickListener {
+            // IMPORTANT: always re-open Apply Effects with the ORIGINAL recording,
+            // never with the already-processed file, so effects never stack on each other.
             val intent = Intent(this, ApplyEffectsActivity::class.java)
-            intent.putExtra(ApplyEffectsActivity.EXTRA_AUDIO_PATH, savedPath)
+            intent.putExtra(ApplyEffectsActivity.EXTRA_AUDIO_PATH, originalPath ?: savedPath)
             startActivity(intent)
+            finish()
         }
 
         findViewById<android.widget.LinearLayout>(R.id.btnExploreHome).setOnClickListener {
@@ -174,5 +179,6 @@ class FileSavedActivity : AppCompatActivity() {
 
     companion object {
         const val EXTRA_SAVED_PATH = "extra_saved_path"
+        const val EXTRA_ORIGINAL_PATH = "extra_original_path"
     }
 }

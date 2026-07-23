@@ -58,6 +58,10 @@ class ApplyEffectsActivity : AppCompatActivity() {
         super.onCreate(savedInstanceState)
         setContentView(R.layout.activity_apply_effects)
 
+        // sourcePath must ALWAYS be the original raw recording. Every caller of this
+        // Activity (PlaybackActivity's "Change Voice" row, and FileSavedActivity's
+        // "Change" button) is responsible for passing the ORIGINAL file here, never
+        // an already-effect-processed file, so effects never stack on top of each other.
         sourcePath = intent.getStringExtra(EXTRA_AUDIO_PATH)
 
         val toolbar = findViewById<Toolbar>(R.id.toolbar)
@@ -125,8 +129,6 @@ class ApplyEffectsActivity : AppCompatActivity() {
 
     private fun previewEffect(effect: VoiceEffect) {
         stopPlayback()
-        // Live pitch-preview during playback (without re-encoding) uses MediaPlayer's
-        // PlaybackParams for a quick preview; the real processed file is only written on Save.
         val path = sourcePath ?: return
         mediaPlayer = MediaPlayer().apply {
             setDataSource(path)
@@ -134,8 +136,7 @@ class ApplyEffectsActivity : AppCompatActivity() {
             try {
                 playbackParams = playbackParams.setPitch(effect.pitch).setSpeed(effect.speed)
             } catch (e: Exception) {
-                // Some devices/API levels may not support runtime pitch changes; playback
-                // will just use normal speed/pitch as a fallback in that case.
+                // Fallback to normal playback if the device doesn't support runtime pitch changes.
             }
             setOnCompletionListener {
                 this@ApplyEffectsActivity.isPlaying = false
@@ -197,7 +198,7 @@ class ApplyEffectsActivity : AppCompatActivity() {
         val inputPath = sourcePath ?: return
         val selectedEffect = effectsAdapter.getSelectedEffect()
 
-        Toast.makeText(this, "Applying effect…", Toast.LENGTH_SHORT).show()
+        Toast.makeText(this, "Applying ${selectedEffect.displayName} effect…", Toast.LENGTH_SHORT).show()
 
         lifecycleScope.launch {
             val outputFile = withContext(Dispatchers.IO) {
@@ -216,6 +217,9 @@ class ApplyEffectsActivity : AppCompatActivity() {
             if (outputFile != null) {
                 val intent = android.content.Intent(this@ApplyEffectsActivity, com.example.voiceecho.ui.saved.FileSavedActivity::class.java)
                 intent.putExtra(com.example.voiceecho.ui.saved.FileSavedActivity.EXTRA_SAVED_PATH, outputFile.absolutePath)
+                // Always forward the ORIGINAL source (never the just-created output) so that
+                // if the user taps "Change" from the next screen, effects apply fresh again.
+                intent.putExtra(com.example.voiceecho.ui.saved.FileSavedActivity.EXTRA_ORIGINAL_PATH, inputPath)
                 startActivity(intent)
                 finish()
             } else {

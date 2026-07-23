@@ -3,17 +3,12 @@ package com.example.voiceecho.audio
 import android.media.MediaExtractor
 import android.media.MediaFormat
 import android.media.MediaCodec
-import android.media.MediaMuxer
 import com.example.voiceecho.data.VoiceEffect
 import java.io.File
-import java.nio.ByteBuffer
+import java.nio.ShortBuffer
 
 class VoiceEffectProcessor {
 
-    /**
-     * Decodes the input audio, applies pitch/speed via SonicAudio, and encodes
-     * a new output file. Runs synchronously — call from a background coroutine.
-     */
     fun applyEffect(inputFile: File, outputFile: File, effect: VoiceEffect) {
         val extractor = MediaExtractor()
         extractor.setDataSource(inputFile.absolutePath)
@@ -46,13 +41,8 @@ class VoiceEffectProcessor {
         decoder.configure(inputFormat, null, null, 0)
         decoder.start()
 
-        val sonic = SonicAudio(sampleRate, channelCount).apply {
-            pitch = effect.pitch
-            speed = effect.speed
-        }
-
-        val pcmChunks = mutableListOf<ShortArray>()
-        var totalPcmSamples = 0
+        // Step 1: decode the ENTIRE file into one continuous PCM buffer.
+        val fullPcm = ArrayList<Short>(sampleRate * channelCount * 5)
         val bufferInfo = MediaCodec.BufferInfo()
         var sawInputEOS = false
         var sawOutputEOS = false
@@ -75,19 +65,12 @@ class VoiceEffectProcessor {
 
             val outputBufferIndex = decoder.dequeueOutputBuffer(bufferInfo, 10000)
             if (outputBufferIndex >= 0) {
-                val outputBuffer: ByteBuffer = decoder.getOutputBuffer(outputBufferIndex)!!
                 if (bufferInfo.size > 0) {
-                    val shortArray = ShortArray(bufferInfo.size / 2)
-                    outputBuffer.asShortBuffer().get(shortArray)
-
-                    sonic.writeShorts(shortArray, shortArray.size)
-                    val available = sonic.availableOutput()
-                    if (available > 0) {
-                        val processed = ShortArray(available)
-                        val read = sonic.readShorts(processed, available)
-                        pcmChunks.add(processed.copyOf(read))
-                        totalPcmSamples += read
-                    }
+                    val outputBuffer = decoder.getOutputBuffer(outputBufferIndex)!!
+                    val shortBuffer: ShortBuffer = outputBuffer.asShortBuffer()
+                    val chunk = ShortArray(shortBuffer.remaining())
+                    shortBuffer.get(chunk)
+                    for (s in chunk) fullPcm.add(s)
                 }
                 decoder.releaseOutputBuffer(outputBufferIndex, false)
                 if ((bufferInfo.flags and MediaCodec.BUFFER_FLAG_END_OF_STREAM) != 0) {
@@ -100,18 +83,39 @@ class VoiceEffectProcessor {
         decoder.release()
         extractor.release()
 
-        writeWavFile(outputFile, pcmChunks, totalPcmSamples, sampleRate, channelCount)
+        val fullPcmArray = ShortArray(fullPcm.size)
+        for (i in fullPcm.indices) fullPcmArray[i] = fullPcm[i]
+
+        // Step 2: PURE pitch shift via resampling only (speed fixed at 1.0 here —
+        // this stage's only job is pitch; it will also change duration as a
+        // natural side effect, which we correct for in Step 3).
+        val sonic = SonicAudio(sampleRate, channelCount).apply {
+            pitch = effect.pitch
+            speed = 1.0f
+            rate = 1.0f
+        }
+        sonic.writeShorts(fullPcmArray, fullPcmArray.size)
+        val pitchShiftedCount = sonic.availableOutput()
+        val pitchShifted = ShortArray(pitchShiftedCount)
+        sonic.readShorts(pitchShifted, pitchShiftedCount)
+
+        // Step 3: time-stretch to correct duration/speed to the effect's target
+        // SPEED, independent of whatever the pitch shift changed it to, WITHOUT
+        // touching pitch again. This is what makes pitch and speed independent.
+        val stretchFactor = effect.speed / effect.pitch
+        val finalPcm = TimeStretcher.stretch(pitchShifted, channelCount, stretchFactor)
+
+        writeWavFile(outputFile, finalPcm, sampleRate, channelCount)
     }
 
     private fun writeWavFile(
         outputFile: File,
-        pcmChunks: List<ShortArray>,
-        totalSamples: Int,
+        pcm: ShortArray,
         sampleRate: Int,
         channelCount: Int
     ) {
         val byteRate = sampleRate * channelCount * 2
-        val dataSize = totalSamples * 2
+        val dataSize = pcm.size * 2
         val chunkSize = 36 + dataSize
 
         outputFile.outputStream().use { out ->
@@ -119,14 +123,13 @@ class VoiceEffectProcessor {
             writeWavHeader(header, chunkSize, dataSize, sampleRate, channelCount, byteRate)
             out.write(header)
 
-            val byteBuffer = ByteArray(2)
-            for (chunk in pcmChunks) {
-                for (sample in chunk) {
-                    byteBuffer[0] = (sample.toInt() and 0xFF).toByte()
-                    byteBuffer[1] = ((sample.toInt() shr 8) and 0xFF).toByte()
-                    out.write(byteBuffer)
-                }
+            val byteBuffer = ByteArray(pcm.size * 2)
+            for (i in pcm.indices) {
+                val sample = pcm[i].toInt()
+                byteBuffer[i * 2] = (sample and 0xFF).toByte()
+                byteBuffer[i * 2 + 1] = ((sample shr 8) and 0xFF).toByte()
             }
+            out.write(byteBuffer)
         }
     }
 

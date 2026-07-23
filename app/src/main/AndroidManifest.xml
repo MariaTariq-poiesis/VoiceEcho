@@ -30,6 +30,7 @@
         <activity android:name=".ui.effects.ApplyEffectsActivity" android:exported="false" />
         <activity android:name=".ui.saved.FileSavedActivity" android:exported="false" />
         <activity android:name=".ui.trim.TrimActivity" android:exported="false" />
+        <activity android:name=".ui.saved.SavedFilesActivity" android:exported="false" />
 
         <provider
             android:name="androidx.core.content.FileProvider"

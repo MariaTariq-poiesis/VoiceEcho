@@ -3,7 +3,10 @@ package com.example.voiceecho.audio
 /**
  * Simplified Kotlin port of the Sonic audio processing algorithm
  * (originally by Bill Cox, used in Android's TTS engine).
- * Handles pitch shifting and speed changes on 16-bit PCM audio.
+ * Handles pitch shifting and speed changes on 16-bit PCM audio
+ * by resampling — higher pitch/speed values scan through the source
+ * faster (shorter, higher-pitched output); lower values scan slower
+ * (longer, deeper-pitched output).
  */
 class SonicAudio(
     private var sampleRate: Int,
@@ -38,12 +41,15 @@ class SonicAudio(
     }
 
     private fun process() {
-        val combinedPitchRate = pitch * rate
+        // Combined scan rate: values ABOVE 1.0 scan the source faster,
+        // producing a SHORTER, HIGHER-pitched result (chipmunk-style).
+        // Values BELOW 1.0 scan slower, producing a LONGER, DEEPER result.
+        val playbackRate = (pitch * rate * speed).coerceAtLeast(0.01f)
         val samplesPerChannel = inputCount / numChannels
 
         if (samplesPerChannel <= 0) return
 
-        val outSamplesPerChannel = (samplesPerChannel / (speed / combinedPitchRate).coerceAtLeast(0.01f)).toInt()
+        val outSamplesPerChannel = (samplesPerChannel / playbackRate).toInt()
         val outTotal = outSamplesPerChannel * numChannels
         if (outTotal <= 0) {
             inputCount = 0
@@ -54,7 +60,7 @@ class SonicAudio(
 
         for (ch in 0 until numChannels) {
             for (i in 0 until outSamplesPerChannel) {
-                val srcPos = (i * (speed / combinedPitchRate))
+                val srcPos = i * playbackRate
                 val srcIndex = srcPos.toInt().coerceIn(0, samplesPerChannel - 1)
                 val nextIndex = (srcIndex + 1).coerceAtMost(samplesPerChannel - 1)
                 val frac = srcPos - srcIndex

@@ -28,4 +28,14 @@
     <string name="explore_share">Share</string>
     <string name="explore_change">Change</string>
     <string name="explore_home">Home</string>
+    <string name="saved_files_title">Saved Files</string>
+    <string name="no_files_message">No recordings yet. Tap Record on Home to create one.</string>
+    <string name="menu_rename">Rename</string>
+    <string name="menu_delete">Delete</string>
+    <string name="menu_share">Share</string>
+    <string name="dialog_rename_title">Rename Recording</string>
+    <string name="dialog_delete_title">Delete Recording?</string>
+    <string name="dialog_delete_message">This cannot be undone.</string>
+    <string name="btn_cancel">Cancel</string>
+    <string name="btn_ok">OK</string>
 </resources>
